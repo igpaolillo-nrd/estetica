@@ -1,0 +1,4 @@
+-- Migración 001: extensiones necesarias para búsqueda tolerante y eficiente
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "unaccent";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";

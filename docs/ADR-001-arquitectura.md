@@ -1,0 +1,73 @@
+# ADR-001: Arquitectura del sistema de fidelización por puntos
+
+## Estado
+Aprobado para Fase 1 (MVP).
+
+## Contexto
+Sistema de fidelización por puntos para un centro de estética en Argentina. Operadora única (la dueña), uso desde el celular con la clienta enfrente, en segundos, sin manual. Clientela mayoritariamente de edad avanzada y poca tecnología. Es un MVP con vida esperada menor a 3 meses antes de la primera validación real. La vara de éxito es que la operadora lo siga usando a las 8 semanas, no que la demo funcione.
+
+## Decisión
+Usar **arquitectura Hexagonal (Ports & Adapters)** con un núcleo de dominio rico **solo en el ledger de puntos**, y CRUD pragmático para el resto.
+
+Stack: Next.js (App Router) + Supabase (Postgres), TypeScript.
+
+## Justificación
+
+1. **Complejidad del dominio: intermedia.**
+   El ledger de puntos tiene invariantes no triviales: append-only, snapshot inmutable, reversión compensatoria y rechazo por saldo insuficiente. Estas reglas merecen aislamiento y testeo en aislamiento. Pero es **un solo agregado** con pocos invariantes, no un dominio con múltiples bounded contexts. No justifica Clean Architecture de cuatro capas ni DDD completo.
+
+2. **Integraciones con terceros.**
+   El sistema diferirá integraciones con Google Calendar (turnos) y WhatsApp (notificaciones). Hexagonal hace explícitas esas fronteras mediante puertos, con adaptadores intercambiables. Hoy se declaran e implementan como stubs.
+
+3. **MVP + Next.js App Router.**
+   El framework es opinado. Respetamos sus convenciones antes de imponer capas globales. Los Server Actions / route handlers actúan como adaptadores de entrada (driving adapters), sin un wrapper ceremonial sobre casos de uso.
+
+4. **Velocidad de iteración.**
+   Catálogos (servicios, premios) y búsqueda de clientas no pagan el costo de DTOs y casos de uso formales. Se resuelven con CRUD y queries directas, manteniendo separación de responsabilidades y bajo acoplamiento sin liturgia.
+
+## Límites del hexágono
+
+**Dentro del hexágono (dominio puro, sin imports de Supabase/Next):**
+- Agregado `Visita` e invariantes del ledger.
+- Puertos: interfaces de repositorio del ledger y puertos externos (`CalendarPort`, `NotificationPort`).
+- Operaciones de dominio: registrar visita, canjear premio, deshacer última acción.
+
+**Afuera del hexágono (adaptadores):**
+- Driven adapters: implementación Supabase de los repositorios; stubs de Calendar y WhatsApp.
+- Driving adapters: Server Actions / route handlers de Next.js que invocan el dominio.
+
+**Pragmático (no fuerza al hexágono):**
+- CRUD de servicios, premios y clientas.
+- Búsqueda de clientas por nombre.
+- Proyecciones de lectura sobre el ledger.
+
+## Cuándo evolucionar la arquitectura
+
+Las siguientes señales justificarían subir a Monolito Modular o DDD + Clean Architecture. **No antes.**
+
+1. Aparece un segundo bounded context con lógica propia (ej. gestión de turnos con reglas reales, programa de referidos, facturación).
+2. El ledger deja de ser un solo agregado y necesita coordinar invariantes entre agregados.
+3. Más de un operador con roles y permisos distintos (rompe el supuesto de operador único).
+4. Los catálogos desarrollan reglas de negocio propias no triviales.
+
+Mientras ninguna de estas señales aparezca, se mantiene el hexágono chico. Subir de nivel sin estas señales es sobre-ingeniería.
+
+## Consecuencias
+
+- **Positivas:**
+  - El ledger está aislado, testeable y protegido por invariantes explícitas.
+  - Las integraciones futuras tienen un seam claro.
+  - El resto del código es liviano y rápido de iterar.
+
+- **Negativas / riesgos:**
+  - Queda a cargo del equipo respetar el límite del hexágono; no hay un framework que lo impida.
+  - Si el producto crece más rápido de lo esperado, puede haber deuda de arquitectura que requiera refactor.
+
+## Alternativas consideradas
+
+- **Clean Architecture de 4 capas:** descartada. Aumenta la ceremonia sin aportar valor proporcional para un MVP con un solo agregado.
+- **Arquitectura totalmente plana (todo CRUD):** descartada. El ledger tiene invariantes que merecen aislamiento; sin hexágono, las reglas se dispersarían en la DB y en la UI.
+
+## Notas de privacidad
+
+La columna `nota` puede contener datos sensibles (Ley 25.326, Argentina). RLS restringe el acceso a usuarios autenticados. La columna **nunca** debe exponerse en superficie de cara a la clienta, URLs, logs ni mensajes de error. Esto reduce exposición pero no constituye compliance completo.
