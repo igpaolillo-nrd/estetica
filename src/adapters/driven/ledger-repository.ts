@@ -166,14 +166,14 @@ export class SupabaseLedgerRepository implements LedgerRepository {
       return;
     }
 
+    // Canje: el dominio ya calculó la entrada reversal. La pasamos tal cual.
     const entradaReversal = entradasReversal[0];
-    if (!entradaReversal?.reversesEntryId) {
-      throw new Error('Entrada reversal sin referencia al canje original');
+    if (!entradaReversal) {
+      throw new Error('No se recibió entrada reversal para el canje');
     }
 
     const { error } = await this.db.rpc('guardar_reversion_canje', {
-      p_entry_id: entradaReversal.reversesEntryId,
-      p_operador_id: entradaReversal.createdBy,
+      p_entrada: this.entradaToJson(entradaReversal),
     });
 
     if (error) {

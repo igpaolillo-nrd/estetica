@@ -1,11 +1,20 @@
 -- Migración 003: índices para lecturas frecuentes
 
 -- Búsqueda tolerante a acentos y parcial por nombre de clienta.
--- Usamos un índice GIN sobre la expresión inmutable lower(unaccent(nombre))
--- para soportar ILIKE con prefijo y búsquedas por similarity.
+-- unaccent es STABLE por defecto; para usarlo en un índice necesitamos
+-- un wrapper IMMUTABLE.
+CREATE OR REPLACE FUNCTION f_unaccent(text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT unaccent($1);
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre_trgm
     ON clientes
-    USING GIN (lower(unaccent(nombre)) gin_trgm_ops);
+    USING GIN (lower(f_unaccent(nombre)) gin_trgm_ops);
 
 -- Ledger: lectura por cliente y por rango de tiempo para saldo e historial.
 CREATE INDEX IF NOT EXISTS idx_ledger_cliente_created

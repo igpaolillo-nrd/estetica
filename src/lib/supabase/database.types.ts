@@ -185,8 +185,7 @@ export type Database = {
       };
       guardar_reversion_canje: {
         Args: {
-          p_entry_id: string;
-          p_operador_id: string;
+          p_entrada: Json;
         };
         Returns: undefined;
       };

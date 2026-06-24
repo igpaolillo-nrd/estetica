@@ -1,7 +1,30 @@
-: 
 -- Migración 006: funciones RPC atómicas para escrituras críticas del ledger.
 -- Principio: el dominio es la única fuente de verdad. Estas funciones SOLO
 -- garantizan atomicidad; no calculan montos, no generan entradas, no deciden reglas.
+
+-- Helper para convertir texto JSON a uuid o NULL sin riesgo de cast inválido.
+CREATE OR REPLACE FUNCTION to_uuid_or_null(p_text text)
+RETURNS uuid
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN p_text IS NULL OR p_text = '' OR lower(p_text) = 'null' THEN NULL
+    ELSE p_text::uuid
+  END;
+$$;
+
+-- Helper para convertir texto JSON a text o NULL.
+CREATE OR REPLACE FUNCTION to_text_or_null(p_text text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN p_text IS NULL OR p_text = '' THEN NULL
+    ELSE p_text
+  END;
+$$;
 
 -- Guarda una visita y las entradas earn YA CALCULADAS por el dominio.
 CREATE OR REPLACE FUNCTION guardar_visita_y_entradas(
@@ -29,15 +52,15 @@ BEGIN
       id, cliente_id, tipo, monto_puntos, servicio_id, premio_id, visita_id,
       reverses_entry_id, nota, created_by
     ) VALUES (
-      COALESCE((entrada->>'id')::uuid, uuid_generate_v4()),
+      COALESCE(to_uuid_or_null(entrada->>'id'), uuid_generate_v4()),
       p_cliente_id,
       (entrada->>'tipo')::ledger_tipo,
       (entrada->>'monto_puntos')::int,
-      NULLIF((entrada->>'servicio_id')::uuid, NULL),
-      NULLIF((entrada->>'premio_id')::uuid, NULL),
+      to_uuid_or_null(entrada->>'servicio_id'),
+      to_uuid_or_null(entrada->>'premio_id'),
       v_id,
-      NULLIF((entrada->>'reverses_entry_id')::uuid, NULL),
-      NULLIF(entrada->>'nota', ''),
+      to_uuid_or_null(entrada->>'reverses_entry_id'),
+      to_text_or_null(entrada->>'nota'),
       p_created_by
     );
   END LOOP;
@@ -60,16 +83,16 @@ BEGIN
     id, cliente_id, tipo, monto_puntos, servicio_id, premio_id, visita_id,
     reverses_entry_id, nota, created_by
   ) VALUES (
-    COALESCE((p_entrada->>'id')::uuid, uuid_generate_v4()),
-    (p_entrada->>'cliente_id')::uuid,
+    COALESCE(to_uuid_or_null(p_entrada->>'id'), uuid_generate_v4()),
+    to_uuid_or_null(p_entrada->>'cliente_id'),
     (p_entrada->>'tipo')::ledger_tipo,
     (p_entrada->>'monto_puntos')::int,
-    NULLIF((p_entrada->>'servicio_id')::uuid, NULL),
-    NULLIF((p_entrada->>'premio_id')::uuid, NULL),
-    NULLIF((p_entrada->>'visita_id')::uuid, NULL),
-    NULLIF((p_entrada->>'reverses_entry_id')::uuid, NULL),
-    NULLIF(p_entrada->>'nota', ''),
-    (p_entrada->>'created_by')::uuid
+    to_uuid_or_null(p_entrada->>'servicio_id'),
+    to_uuid_or_null(p_entrada->>'premio_id'),
+    to_uuid_or_null(p_entrada->>'visita_id'),
+    to_uuid_or_null(p_entrada->>'reverses_entry_id'),
+    to_text_or_null(p_entrada->>'nota'),
+    to_uuid_or_null(p_entrada->>'created_by')
   );
 END;
 $$;
@@ -101,15 +124,15 @@ BEGIN
       id, cliente_id, tipo, monto_puntos, servicio_id, premio_id, visita_id,
       reverses_entry_id, nota, created_by
     ) VALUES (
-      COALESCE((entrada->>'id')::uuid, uuid_generate_v4()),
-      (entrada->>'cliente_id')::uuid,
+      COALESCE(to_uuid_or_null(entrada->>'id'), uuid_generate_v4()),
+      to_uuid_or_null(entrada->>'cliente_id'),
       (entrada->>'tipo')::ledger_tipo,
       (entrada->>'monto_puntos')::int,
-      NULLIF((entrada->>'servicio_id')::uuid, NULL),
-      NULLIF((entrada->>'premio_id')::uuid, NULL),
-      (entrada->>'visita_id')::uuid,
-      NULLIF((entrada->>'reverses_entry_id')::uuid, NULL),
-      NULLIF(entrada->>'nota', ''),
+      to_uuid_or_null(entrada->>'servicio_id'),
+      to_uuid_or_null(entrada->>'premio_id'),
+      to_uuid_or_null(entrada->>'visita_id'),
+      to_uuid_or_null(entrada->>'reverses_entry_id'),
+      to_text_or_null(entrada->>'nota'),
       p_operador_id
     );
   END LOOP;
@@ -118,35 +141,27 @@ $$;
 
 -- Guarda la entrada reversal de un canje YA CALCULADA por el dominio.
 CREATE OR REPLACE FUNCTION guardar_reversion_canje(
-  p_entry_id uuid,
-  p_operador_id uuid
+  p_entrada jsonb
 )
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
-DECLARE
-  entrada record;
 BEGIN
-  SELECT *
-  INTO entrada
-  FROM ledger_entries
-  WHERE id = p_entry_id AND tipo = 'redeem';
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Canje no encontrado: %', p_entry_id;
-  END IF;
-
   INSERT INTO ledger_entries (
-    cliente_id, tipo, monto_puntos, premio_id, reverses_entry_id, nota, created_by
+    id, cliente_id, tipo, monto_puntos, servicio_id, premio_id, visita_id,
+    reverses_entry_id, nota, created_by
   ) VALUES (
-    entrada.cliente_id,
-    'reversal',
-    -entrada.monto_puntos,
-    entrada.premio_id,
-    entrada.id,
-    'Reversión de canje',
-    p_operador_id
+    COALESCE(to_uuid_or_null(p_entrada->>'id'), uuid_generate_v4()),
+    to_uuid_or_null(p_entrada->>'cliente_id'),
+    (p_entrada->>'tipo')::ledger_tipo,
+    (p_entrada->>'monto_puntos')::int,
+    to_uuid_or_null(p_entrada->>'servicio_id'),
+    to_uuid_or_null(p_entrada->>'premio_id'),
+    to_uuid_or_null(p_entrada->>'visita_id'),
+    to_uuid_or_null(p_entrada->>'reverses_entry_id'),
+    to_text_or_null(p_entrada->>'nota'),
+    to_uuid_or_null(p_entrada->>'created_by')
   );
 END;
 $$;

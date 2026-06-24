@@ -1,6 +1,16 @@
 -- Migración 004: Row Level Security
 -- Acceso anónimo no permitido. Toda lectura/escritura requiere usuario autenticado.
 
+-- En Supabase este rol ya existe; en Postgres local lo creamos para poder
+-- aplicar las políticas sin modificarlas.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END
+$$;
+
 ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE servicios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE premios ENABLE ROW LEVEL SECURITY;
