@@ -5,20 +5,20 @@ export type LedgerTipo = 'earn' | 'redeem' | 'reversal';
 
 /**
  * Snapshot de un servicio en el momento de la visita.
- * El dominio copia puntos_default aquí para garantizar inmutabilidad histórica.
+ * El dominio copia puntos_default como monto para garantizar inmutabilidad histórica.
+ * El nombre del servicio vive en el catálogo y se resuelve en presentación, no aquí.
  */
 export interface ServicioSnapshot {
   servicioId: string;
-  nombre: string;
   montoPuntos: MontoPuntos;
 }
 
 /**
  * Snapshot de un premio en el momento del canje.
+ * El nombre del premio vive en el catálogo; el dominio no lo necesita para el ledger.
  */
 export interface PremioSnapshot {
   premioId: string;
-  nombre: string;
   costoPuntos: MontoPuntos;
 }
 

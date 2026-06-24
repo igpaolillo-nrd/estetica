@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       clientes: {
@@ -31,6 +31,7 @@ export interface Database {
           dni?: string | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       servicios: {
         Row: {
@@ -57,6 +58,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       premios: {
         Row: {
@@ -83,6 +85,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       visitas: {
         Row: {
@@ -109,6 +112,7 @@ export interface Database {
           created_at?: string;
           revertida_at?: string | null;
         };
+        Relationships: [];
       };
       ledger_entries: {
         Row: {
@@ -150,8 +154,10 @@ export interface Database {
           created_by?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
     Functions: {
       guardar_visita_y_entradas: {
         Args: {
@@ -159,14 +165,21 @@ export interface Database {
           p_cliente_id: string;
           p_nota: string | null;
           p_created_by: string;
-          p_servicios: Json;
+          p_entradas: Json;
         };
         Returns: string;
+      };
+      guardar_canje: {
+        Args: {
+          p_entrada: Json;
+        };
+        Returns: undefined;
       };
       guardar_reversion_visita: {
         Args: {
           p_visita_id: string;
           p_operador_id: string;
+          p_entradas: Json;
         };
         Returns: undefined;
       };
@@ -177,9 +190,16 @@ export interface Database {
         };
         Returns: undefined;
       };
+      obtener_ultima_accion: {
+        Args: {
+          p_operador_id: string;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       ledger_tipo: 'earn' | 'redeem' | 'reversal';
     };
+    CompositeTypes: Record<string, never>;
   };
-}
+};

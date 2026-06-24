@@ -71,3 +71,22 @@ Mientras ninguna de estas señales aparezca, se mantiene el hexágono chico. Sub
 ## Notas de privacidad
 
 La columna `nota` puede contener datos sensibles (Ley 25.326, Argentina). RLS restringe el acceso a usuarios autenticados. La columna **nunca** debe exponerse en superficie de cara a la clienta, URLs, logs ni mensajes de error. Esto reduce exposición pero no constituye compliance completo.
+
+## Correcciones de la Fase 1.5
+
+Tras revisión se detectaron y remediaron los siguientes problemas:
+
+1. **Dominio como única fuente de verdad.**
+   Las RPCs de Postgres (`guardar_visita_y_entradas`, `guardar_reversion_visita`) recalculaban entradas en PL/pgSQL, duplicando reglas del dominio. Se refactorizaron para que reciban un JSONB de entradas ya calculadas por TypeScript y solo inserten atómicamente. El adaptador `SupabaseLedgerRepository` ahora pasa las entradas reales generadas por `Visita.generarEntradasEarn()` y `deshacerUltimaAccion()`.
+
+2. **Atomicidad unificada.**
+   `canjearPremio` pasó a usar una RPC atómica (`guardar_canje`) al igual que visita y reversión. La validación de `SaldoInsuficiente` sigue ocurriendo en el dominio antes de llamar a la RPC; la función SQL no decide, solo escribe.
+
+3. **Consulta de última acción encapsulada.**
+   La query inválida de `obtenerUltimaAccion` con subconsulta en el query builder fue reemplazada por la RPC `obtener_ultima_accion`, que devuelve la última visita o canje no revertido de una operadora como JSON. Es más robusta y testeable.
+
+4. **Snapshot sin datos de presentación.**
+   `ServicioSnapshot` y `PremioSnapshot` incluían `nombre`, un campo del catálogo que el ledger no persiste. Esto obligaba al hack `nombre: ''` al reconstruir una `Visita`. Se eliminó `nombre` de ambos snapshots; el dominio no necesita nombres para aplicar invariantes. Los nombres se resuelven por join contra el catálogo en la capa de presentación.
+
+5. **Verificación automatizada.**
+   Se agregó Vitest y tests de dominio puro sin base de datos. `npx tsc --noEmit` compila sin errores y los tests pasan.

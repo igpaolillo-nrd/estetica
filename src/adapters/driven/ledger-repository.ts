@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { Database } from '@/lib/supabase/database.types';
+import { Database, Json } from '@/lib/supabase/database.types';
 import { LedgerRepository } from '@/domain/ports';
 import { Visita, LedgerEntry, LedgerTipo } from '@/domain/entities';
 import { MontoPuntos } from '@/domain/value-objects';
@@ -7,28 +7,23 @@ import { MontoPuntos } from '@/domain/value-objects';
 /**
  * Implementación Supabase del repositorio del ledger.
  *
- * - Las escrituras atómicas (visita + earn, reversión) se delegan a funciones RPC
- *   de Postgres para garantizar transaccionalidad.
- * - Las lecturas (saldo, historial, última acción) usan SQL directo.
+ * - Las escrituras atómicas se delegan a funciones RPC de Postgres.
+ * - El dominio calcula las entradas; las RPCs solo insertan lo que reciben.
+ * - Las lecturas (saldo, historial, última acción) usan SQL directo o RPCs de consulta.
  */
 export class SupabaseLedgerRepository implements LedgerRepository {
   constructor(private readonly db: SupabaseClient<Database>) {}
 
   async registrarVisita(
     visita: Visita,
-    _entradas: LedgerEntry[]
+    entradas: LedgerEntry[]
   ): Promise<Visita> {
-    const serviciosJson = visita.servicios.map((s) => ({
-      servicio_id: s.servicioId,
-      monto_puntos: s.montoPuntos.valor,
-    }));
-
     const { error } = await this.db.rpc('guardar_visita_y_entradas', {
       p_visita_id: visita.id,
       p_cliente_id: visita.clienteId,
       p_nota: visita.nota ?? null,
       p_created_by: visita.createdBy,
-      p_servicios: serviciosJson,
+      p_entradas: entradas.map((e) => this.entradaToJson(e)),
     });
 
     if (error) {
@@ -39,13 +34,8 @@ export class SupabaseLedgerRepository implements LedgerRepository {
   }
 
   async canjearPremio(entrada: LedgerEntry): Promise<void> {
-    const { error } = await this.db.from('ledger_entries').insert({
-      cliente_id: entrada.clienteId,
-      tipo: entrada.tipo,
-      monto_puntos: entrada.montoPuntos.valor,
-      premio_id: entrada.premioId ?? null,
-      nota: entrada.nota ?? null,
-      created_by: entrada.createdBy,
+    const { error } = await this.db.rpc('guardar_canje', {
+      p_entrada: this.entradaToJson(entrada),
     });
 
     if (error) {
@@ -87,74 +77,74 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     | { tipo: 'redeem'; entrada: LedgerEntry }
     | null
   > {
-    const [visitaResult, canjeResult] = await Promise.all([
-      this.db
-        .from('visitas')
-        .select('*')
-        .eq('created_by', operadorId)
-        .is('revertida_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      this.db
-        .from('ledger_entries')
-        .select('*')
-        .eq('tipo', 'redeem')
-        .eq('created_by', operadorId)
-        .not(
-          'id',
-          'in',
-          this.db
-            .from('ledger_entries')
-            .select('reverses_entry_id')
-            .eq('tipo', 'reversal')
-            .not('reverses_entry_id', 'is', null)
-        )
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+    const { data, error } = await this.db.rpc('obtener_ultima_accion', {
+      p_operador_id: operadorId,
+    });
 
-    if (visitaResult.error) {
-      throw new Error(`Error al obtener última visita: ${visitaResult.error.message}`);
-    }
-    if (canjeResult.error) {
-      throw new Error(`Error al obtener último canje: ${canjeResult.error.message}`);
+    if (error) {
+      throw new Error(`Error al obtener última acción: ${error.message}`);
     }
 
-    const visitaRow = visitaResult.data;
-    const canjeRow = canjeResult.data;
-
-    if (!visitaRow && !canjeRow) {
+    if (!data) {
       return null;
     }
 
-    const fechaVisita = visitaRow ? new Date(visitaRow.created_at) : null;
-    const fechaCanje = canjeRow && canjeRow.created_at ? new Date(canjeRow.created_at) : null;
+    const payload = data as {
+      tipo: 'visita' | 'redeem';
+      visita?: {
+        id: string;
+        cliente_id: string;
+        nota: string | null;
+        created_by: string;
+        created_at: string;
+        revertida_at: string | null;
+      };
+      entradas?: Array<{
+        id: string;
+        cliente_id: string;
+        tipo: LedgerTipo;
+        monto_puntos: number;
+        servicio_id: string | null;
+        premio_id: string | null;
+        visita_id: string | null;
+        reverses_entry_id: string | null;
+        nota: string | null;
+        created_by: string;
+        created_at: string;
+      }>;
+      entrada?: {
+        id: string;
+        cliente_id: string;
+        tipo: LedgerTipo;
+        monto_puntos: number;
+        servicio_id: string | null;
+        premio_id: string | null;
+        visita_id: string | null;
+        reverses_entry_id: string | null;
+        nota: string | null;
+        created_by: string;
+        created_at: string;
+      };
+    };
 
-    const esVisitaMasReciente =
-      fechaVisita &&
-      (!fechaCanje || fechaVisita.getTime() >= fechaCanje.getTime());
-
-    if (esVisitaMasReciente && visitaRow) {
-      const entradas = await this.obtenerEntradasDeVisita(visitaRow.id);
+    if (payload.tipo === 'visita' && payload.visita && payload.entradas) {
+      const entradas = payload.entradas.map((e) => this.toLedgerEntry(e));
       const visita = Visita.crear({
-        id: visitaRow.id,
-        clienteId: visitaRow.cliente_id,
+        id: payload.visita.id,
+        clienteId: payload.visita.cliente_id,
         servicios: entradas.map((e) => ({
           servicioId: e.servicioId!,
-          nombre: '', // no se almacena en ledger; se puede enriquecer si es necesario
           montoPuntos: e.montoPuntos,
         })),
-        nota: visitaRow.nota ?? undefined,
-        createdBy: visitaRow.created_by,
-        createdAt: new Date(visitaRow.created_at),
+        nota: payload.visita.nota ?? undefined,
+        createdBy: payload.visita.created_by,
+        createdAt: new Date(payload.visita.created_at),
       });
       return { tipo: 'visita', visita, entradas };
     }
 
-    if (canjeRow) {
-      return { tipo: 'redeem', entrada: this.toLedgerEntry(canjeRow) };
+    if (payload.tipo === 'redeem' && payload.entrada) {
+      return { tipo: 'redeem', entrada: this.toLedgerEntry(payload.entrada) };
     }
 
     return null;
@@ -162,12 +152,13 @@ export class SupabaseLedgerRepository implements LedgerRepository {
 
   async guardarReversion(
     visita: Visita | null,
-    _entradasReversal: LedgerEntry[]
+    entradasReversal: LedgerEntry[]
   ): Promise<void> {
     if (visita) {
       const { error } = await this.db.rpc('guardar_reversion_visita', {
         p_visita_id: visita.id,
         p_operador_id: visita.createdBy,
+        p_entradas: entradasReversal.map((e) => this.entradaToJson(e)),
       });
       if (error) {
         throw new Error(`Error al revertir visita: ${error.message}`);
@@ -175,9 +166,7 @@ export class SupabaseLedgerRepository implements LedgerRepository {
       return;
     }
 
-    // Para canje, usamos la primera entrada reversal para obtener reverses_entry_id.
-    // El dominio ya generó la entrada con la referencia correcta.
-    const entradaReversal = _entradasReversal[0];
+    const entradaReversal = entradasReversal[0];
     if (!entradaReversal?.reversesEntryId) {
       throw new Error('Entrada reversal sin referencia al canje original');
     }
@@ -190,6 +179,21 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     if (error) {
       throw new Error(`Error al revertir canje: ${error.message}`);
     }
+  }
+
+  private entradaToJson(entrada: LedgerEntry): Record<string, Json> {
+    return {
+      id: entrada.id ?? null,
+      cliente_id: entrada.clienteId,
+      tipo: entrada.tipo,
+      monto_puntos: entrada.montoPuntos.valor,
+      servicio_id: entrada.servicioId ?? null,
+      premio_id: entrada.premioId ?? null,
+      visita_id: entrada.visitaId ?? null,
+      reverses_entry_id: entrada.reversesEntryId ?? null,
+      nota: entrada.nota ?? null,
+      created_by: entrada.createdBy,
+    };
   }
 
   private toLedgerEntry(row: {

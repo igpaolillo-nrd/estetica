@@ -61,7 +61,6 @@ export async function canjearPremio(
     tipo: 'redeem',
     montoPuntos: props.premio.costoPuntos.negativo(),
     premioId: props.premio.premioId,
-    nota: `Canje de premio: ${props.premio.nombre}`,
     createdBy: props.createdBy,
   };
 
