@@ -63,7 +63,7 @@ Aplicar siempre en orden. Verificar contra base real antes de declarar listo.
 
 - Las políticas actuales usan `TO authenticated USING (true)` / `WITH CHECK (true)`. Esto permite a cualquier usuario autenticado leer/escribir cualquier fila.
 - Es correcto **bajo el supuesto de operadora única**. Cuando haya más de un operador con roles distintos, estas políticas dejan de servir y hay que evolucionar la arquitectura.
-- No hay políticas `FOR DELETE` en `clientes`, `servicios`, `premios` ni `visitas`: el DELETE físico es rechazado por RLS por defecto. `ledger_entries` tiene un DELETE explícito con `USING (false)`.
+- No hay políticas `FOR DELETE` en ninguna tabla. El DELETE físico es rechazado por RLS por defecto. `ledger_entries` también tiene un trigger append-only como defensa en profundidad.
 - La columna `nota` es sensible (Ley 25.326, Argentina). Nunca exponerla en UI de cara a la clienta, URLs, logs ni mensajes de error.
 
 ## Límites explícitos

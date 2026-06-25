@@ -50,7 +50,6 @@ CREATE POLICY "authenticated_select_ledger" ON ledger_entries
     FOR SELECT TO authenticated USING (true);
 CREATE POLICY "authenticated_insert_ledger" ON ledger_entries
     FOR INSERT TO authenticated WITH CHECK (true);
--- El ledger nunca se actualiza ni borra desde la aplicación; la política de UPDATE
--- solo existe para operaciones administrativas controladas y queda restringida.
-CREATE POLICY "authenticated_no_delete_ledger" ON ledger_entries
-    FOR DELETE TO authenticated USING (false);
+-- No hay política FOR DELETE: el ledger es append-only. RLS niega por defecto
+-- cualquier DELETE no cubierto por política, y el trigger append-only (migración 005)
+-- actúa como defensa en profundidad.
