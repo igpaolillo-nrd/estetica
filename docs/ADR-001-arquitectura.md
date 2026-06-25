@@ -72,6 +72,14 @@ Mientras ninguna de estas señales aparezca, se mantiene el hexágono chico. Sub
 
 La columna `nota` puede contener datos sensibles (Ley 25.326, Argentina). RLS restringe el acceso a usuarios autenticados. La columna **nunca** debe exponerse en superficie de cara a la clienta, URLs, logs ni mensajes de error. Esto reduce exposición pero no constituye compliance completo.
 
+## Supuesto de operador único y políticas RLS
+
+Las políticas actuales usan `TO authenticated USING (true)` / `WITH CHECK (true)` para SELECT, INSERT y UPDATE en todas las tablas. Esto significa que **cualquier usuario autenticado puede leer y escribir cualquier fila**. Es una decisión consciente bajo el supuesto de **operadora única**: hay un solo usuario del sistema (la dueña) y no hay distinción de roles ni permisos por propietario.
+
+**Deuda / trigger de cambio:** el día que aparezca más de un operador con roles distintos, estas políticas dejan de ser adecuadas. En particular, la columna `nota` (datos sensibles, Ley 25.326) no debería ser legible por cualquier operador, y los catálogos podrían requerir permisos de administración separados. Ese escenario coincide con el trigger de evolución arquitectónica ya registrado: "Más de un operador con roles y permisos distintos".
+
+**Soft-delete y DELETE físico:** las tablas `clientes`, `servicios`, `premios` y `visitas` no tienen política `FOR DELETE`. Como RLS niega por defecto cualquier operación sin política explícita, un `DELETE` físico sobre esas tablas queda rechazado. El único `DELETE` explícito es en `ledger_entries`, con `USING (false)`, reforzando el invariante append-only. El borrado lógico se hace siempre vía `UPDATE ... SET activo = false` (servicios/premios) o `UPDATE ... SET revertida_at = ...` (visitas).
+
 ## Correcciones de la Fase 1.5
 
 Tras revisión se detectaron y remediaron los siguientes problemas:
