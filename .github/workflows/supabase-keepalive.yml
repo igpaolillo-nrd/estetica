@@ -11,12 +11,15 @@ jobs:
     steps:
       - name: Ping Supabase REST API
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "Faltan SUPABASE_URL o SUPABASE_ANON_KEY en Repository secrets"
+            exit 1
+          fi
+          STATUS=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
             "${{ secrets.SUPABASE_URL }}/rest/v1/")
           echo "HTTP Status: $STATUS"
           if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
-            echo "Fallo al contactar Supabase"
+            cat /tmp/resp.txt
             exit 1
           fi
