@@ -303,6 +303,59 @@ describe('Capa SQL del ledger (integración)', () => {
     expect(accion.entrada.monto_puntos).toBe(-5);
   });
 
+  it('obtener_ultima_accion devuelve la visita cuando es lo más reciente (o lo único)', async () => {
+    const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b61';
+    const visitaVieja = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b62';
+    const visitaNueva = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b63';
+    const servicioId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b64';
+    const premioId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b65';
+    const operadorId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380b66';
+
+    await crearCliente(clienteId, 'Inés');
+    await crearServicio(servicioId, 10);
+    await crearPremio(premioId, 5);
+
+    const visita = (id: string) =>
+      pool.query('SELECT guardar_visita_y_entradas($1, $2, $3, $4, $5)', [
+        id,
+        clienteId,
+        null,
+        operadorId,
+        JSON.stringify([{ tipo: 'earn', monto_puntos: 10, servicio_id: servicioId }]),
+      ]);
+    const ultima = async () =>
+      (await pool.query('SELECT obtener_ultima_accion($1) AS accion', [operadorId])).rows[0]
+        .accion;
+
+    // Sin acciones: null.
+    expect(await ultima()).toBeNull();
+
+    // Solo una visita (sin canjes): devuelve la visita con sus entradas earn.
+    await visita(visitaVieja);
+    let accion = await ultima();
+    expect(accion.tipo).toBe('visita');
+    expect(accion.visita.id).toBe(visitaVieja);
+    expect(accion.entradas).toHaveLength(1);
+    expect(accion.entradas[0].monto_puntos).toBe(10);
+
+    // Canje y después visita: gana la visita más reciente.
+    await new Promise((r) => setTimeout(r, 20));
+    await pool.query('SELECT guardar_canje($1)', [
+      JSON.stringify({
+        cliente_id: clienteId,
+        tipo: 'redeem',
+        monto_puntos: -5,
+        premio_id: premioId,
+        created_by: operadorId,
+      }),
+    ]);
+    await new Promise((r) => setTimeout(r, 20));
+    await visita(visitaNueva);
+    accion = await ultima();
+    expect(accion.tipo).toBe('visita');
+    expect(accion.visita.id).toBe(visitaNueva);
+  });
+
   it('el saldo computado es correcto después de earn, redeem y reversal', async () => {
     const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a71';
     const visitaId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a72';
