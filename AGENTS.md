@@ -21,7 +21,7 @@ MVP de sistema de fidelización por puntos para un centro de estética (PyME, Ar
 - **Hexagonal con núcleo chico:** solo el ledger de puntos y sus invariantes viven en el hexágono. Todo lo demás es CRUD pragmático.
 - `src/domain/` — dominio puro. **CERO imports de Supabase/Next.** Contiene `Visita`, `LedgerEntry`, value objects, operaciones (`registrarVisita`, `canjearPremio`, `deshacerUltimaAccion`) y puertos (`LedgerRepository`, `CalendarPort`, `NotificationPort`).
 - `src/adapters/driven/` — implementaciones Supabase (`SupabaseLedgerRepository`, `CatalogoRepository`) y stubs externos (`CalendarStub`, `NotificationStub`).
-- `app/actions/` — Server Actions stubs de Next.js. Son el seam de entrada; **NO construir UI/presentación aquí** salvo indicación explícita.
+- `app/actions/` — Server Actions de Next.js (mostrador conectado; CRUD de catálogo aún stub). Devuelven `Resultado<T>`; sesión resuelta solo en `contexto.ts`. Son el seam de entrada; **NO construir UI/presentación aquí** salvo indicación explícita.
 - Catálogos, búsqueda de clientas y lecturas pragmáticas **NO pasan por el hexágono**: queries directas, sin casos de uso ni DTOs ceremoniales.
 
 ## Invariantes del dominio
@@ -56,6 +56,8 @@ Variables opcionales para los tests de integración: `PGHOST`, `PGPORT`, `PGDATA
 - `supabase/migrations/004_rls.sql` — RLS; crea el rol `authenticated` si no existe para compatibilidad local/Supabase.
 - `supabase/migrations/005_append_only_trigger.sql` — trigger que bloquea UPDATE/DELETE sobre `ledger_entries`.
 - `supabase/migrations/006_rpc_functions.sql` — RPCs atómicas. **El dominio calcula las entradas; las RPCs solo insertan.**
+- `supabase/migrations/007_hardening_saldo_busqueda.sql` — grants solo `authenticated`, CHECK de signo, `obtener_saldo` (SUM) y `buscar_clientas`.
+- `supabase/migrations/008_fix_obtener_ultima_accion.sql` — `obtener_ultima_accion` usa `FOUND` (antes `record IS NOT NULL` nunca devolvía visitas).
 
 Aplicar siempre en orden. Verificar contra base real antes de declarar listo.
 
