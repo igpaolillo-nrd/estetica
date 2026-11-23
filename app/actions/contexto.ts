@@ -1,18 +1,16 @@
 /**
  * Contexto de cada Server Action: cliente Supabase + id de la operadora.
  *
- * Único punto donde las actions resuelven sesión. Hoy usa el cliente compartido
- * de `@/lib/supabase/client` (anon key, sin cookies): en el servidor no hay
- * sesión, así que toda action responde "sesión requerida" hasta que exista el
- * login. Cuando se agregue, este archivo pasa a crear un cliente por request
- * con `@supabase/ssr` + `cookies()` de `next/headers` (un cliente con sesión a
- * nivel de módulo se compartiría entre requests). Nada más cambia.
+ * Único punto donde las actions resuelven sesión. Crea un cliente por request
+ * con las cookies del request (`@/lib/supabase/server`) y valida el usuario
+ * contra Supabase Auth con `getUser()` (no confía en la cookie sin verificar).
+ * Sin usuario autenticado tira `SesionRequerida`.
  *
  * Sin 'use server': es un módulo interno, no un endpoint invocable.
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase/client';
+import { crearClienteServidor } from '@/lib/supabase/server';
 import { Database } from '@/lib/supabase/database.types';
 import { SesionRequerida } from './resultado';
 
@@ -22,9 +20,10 @@ export interface ContextoOperadora {
 }
 
 export async function contextoOperadora(): Promise<ContextoOperadora> {
-  const { data, error } = await supabase.auth.getUser();
+  const db = crearClienteServidor();
+  const { data, error } = await db.auth.getUser();
   if (error || !data.user) {
     throw new SesionRequerida();
   }
-  return { db: supabase, operadorId: data.user.id };
+  return { db, operadorId: data.user.id };
 }
