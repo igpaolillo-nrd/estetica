@@ -1,5 +1,17 @@
 # Avances
 
+## 2026-11-23 — Build de Vercel sin prerender de `/`
+
+**Hecho (verificado: `npm run typecheck`, `npm run lint`, `npm test` 41/41 contra Postgres local, `next build` OK sin `NEXT_PUBLIC_SUPABASE_*` en el entorno)**
+- `app/page.tsx`: `export const dynamic = 'force-dynamic'`. Antes el build fallaba prerenderizando `/` con "Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY".
+- `next.config.js`: fuera `experimental.serverActions` (en Next 14 viene activado; daba warning de opción inválida).
+
+**Qué sigue**
+- Cargar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` en Vercel (Production, Preview, Development) cuando exista el proyecto Supabase de la dueña.
+
+**Bloqueos / espera**
+- Proyecto Supabase de la dueña.
+
 ## 2026-11-23 — UI mobile-first de mostrador
 
 **Hecho (verificado: `npm run typecheck`, `npm run lint`, `next build` OK; `npm test` 41/41 contra Postgres local con 001–008; recorrido completo en Chromium como iPhone 13 contra un Supabase simulado sobre Postgres local: buscar → alta → visita → canje → deshacer canje → deshacer visita, saldos correctos)**

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { redirect } from 'next/navigation';
 import { crearClienteServidor } from '@/lib/supabase/server';
 import { Encabezado } from './_mostrador/encabezado';
