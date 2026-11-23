@@ -126,13 +126,12 @@ export class CatalogoRepository {
     const normalizado = parcial.trim();
     if (!normalizado) return [];
 
-    const { data, error } = await this.db
-      .from('clientes')
-      .select('*')
-      .or(
-        `nombre.ilike.%${normalizado}%,nombre.ilike.%${this.sinAcentos(normalizado)}%`
-      )
-      .limit(limite);
+    // RPC parametrizada: nombre (f_unaccent, índice GIN), teléfono y DNI.
+    // El texto no se interpola en un filtro .or() de PostgREST.
+    const { data, error } = await this.db.rpc('buscar_clientas', {
+      p_parcial: normalizado,
+      p_limite: limite,
+    });
 
     if (error) throw new Error(`Error buscando clientas: ${error.message}`);
     return data ?? [];
@@ -158,12 +157,5 @@ export class CatalogoRepository {
 
     if (error) throw new Error(`Error obteniendo clienta: ${error.message}`);
     return data;
-  }
-
-  private sinAcentos(texto: string): string {
-    // Fallback simple; en DB se usa unaccent via ILIKE.
-    return texto
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
   }
 }

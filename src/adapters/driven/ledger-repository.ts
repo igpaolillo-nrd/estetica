@@ -44,16 +44,17 @@ export class SupabaseLedgerRepository implements LedgerRepository {
   }
 
   async obtenerSaldo(clienteId: string): Promise<number> {
-    const { data, error } = await this.db
-      .from('ledger_entries')
-      .select('monto_puntos')
-      .eq('cliente_id', clienteId);
+    // SUM en Postgres. Traer filas y reducir en JS se corta en el límite de
+    // PostgREST (1000) y el saldo deja de ser el del ledger.
+    const { data, error } = await this.db.rpc('obtener_saldo', {
+      p_cliente_id: clienteId,
+    });
 
     if (error) {
       throw new Error(`Error al obtener saldo: ${error.message}`);
     }
 
-    return (data ?? []).reduce((sum, row) => sum + (row.monto_puntos ?? 0), 0);
+    return data ?? 0;
   }
 
   async obtenerEntradasDeVisita(visitaId: string): Promise<LedgerEntry[]> {

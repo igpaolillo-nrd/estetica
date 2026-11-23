@@ -195,6 +195,25 @@ export type Database = {
         };
         Returns: Json;
       };
+      obtener_saldo: {
+        Args: {
+          p_cliente_id: string;
+        };
+        Returns: number;
+      };
+      buscar_clientas: {
+        Args: {
+          p_parcial: string;
+          p_limite?: number;
+        };
+        Returns: {
+          id: string;
+          nombre: string;
+          telefono: string;
+          dni: string | null;
+          created_at: string;
+        }[];
+      };
     };
     Enums: {
       ledger_tipo: 'earn' | 'redeem' | 'reversal';

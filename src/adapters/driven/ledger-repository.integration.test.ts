@@ -13,6 +13,12 @@ describe('Capa SQL del ledger (integración)', () => {
   beforeAll(async () => {
     // Verifica que la conexión funcione.
     await pool.query('SELECT 1');
+    const role = await pool.query(
+      `SELECT 1 FROM pg_roles WHERE rolname = 'estetica_intruso'`
+    );
+    if (role.rowCount === 0) {
+      await pool.query('CREATE ROLE estetica_intruso NOLOGIN');
+    }
   });
 
   beforeEach(async () => {
@@ -367,5 +373,365 @@ describe('Capa SQL del ledger (integración)', () => {
       [clienteId]
     );
     expect(Number(saldo.rows[0].saldo)).toBe(-20);
+
+    const saldoRpc = await pool.query('SELECT obtener_saldo($1) AS saldo', [clienteId]);
+    expect(Number(saldoRpc.rows[0].saldo)).toBe(-20);
+  });
+
+  it('guardar_visita_y_entradas rechaza una visita sin entradas y no la persiste', async () => {
+    const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a81';
+    const visitaId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a82';
+    const operadorId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a83';
+
+    await crearCliente(clienteId, 'Nora');
+
+    await expect(
+      pool.query('SELECT guardar_visita_y_entradas($1, $2, $3, $4, $5)', [
+        visitaId,
+        clienteId,
+        null,
+        operadorId,
+        JSON.stringify([]),
+      ])
+    ).rejects.toThrow(/al menos una entrada/i);
+
+    const visita = await pool.query('SELECT id FROM visitas WHERE id = $1', [visitaId]);
+    expect(visita.rows).toHaveLength(0);
+    const ledger = await pool.query('SELECT id FROM ledger_entries WHERE cliente_id = $1', [
+      clienteId,
+    ]);
+    expect(ledger.rows).toHaveLength(0);
+  });
+
+  it('el CHECK de signo rechaza earn negativo y redeem positivo, y acepta monto 0', async () => {
+    const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a91';
+    const visitaId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a92';
+    const operadorId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a93';
+
+    await crearCliente(clienteId, 'Pilar');
+
+    await expect(
+      pool.query(
+        `INSERT INTO ledger_entries (cliente_id, tipo, monto_puntos, created_by)
+         VALUES ($1, 'earn', -1, $2)`,
+        [clienteId, operadorId]
+      )
+    ).rejects.toThrow(/ledger_entries_monto_signo_chk/);
+
+    await expect(
+      pool.query(
+        `INSERT INTO ledger_entries (cliente_id, tipo, monto_puntos, created_by)
+         VALUES ($1, 'redeem', 10, $2)`,
+        [clienteId, operadorId]
+      )
+    ).rejects.toThrow(/ledger_entries_monto_signo_chk/);
+
+    await expect(
+      pool.query('SELECT guardar_visita_y_entradas($1, $2, $3, $4, $5)', [
+        visitaId,
+        clienteId,
+        null,
+        operadorId,
+        JSON.stringify([{ tipo: 'earn', monto_puntos: -5 }]),
+      ])
+    ).rejects.toThrow(/ledger_entries_monto_signo_chk/);
+
+    const visita = await pool.query('SELECT id FROM visitas WHERE id = $1', [visitaId]);
+    expect(visita.rows).toHaveLength(0);
+
+    await pool.query('SELECT guardar_visita_y_entradas($1, $2, $3, $4, $5)', [
+      visitaId,
+      clienteId,
+      null,
+      operadorId,
+      JSON.stringify([{ tipo: 'earn', monto_puntos: 0 }]),
+    ]);
+
+    const earn = await pool.query(
+      'SELECT monto_puntos FROM ledger_entries WHERE visita_id = $1',
+      [visitaId]
+    );
+    expect(earn.rows[0].monto_puntos).toBe(0);
+  });
+
+  it('no se puede revertir dos veces la misma entrada', async () => {
+    const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380aa1';
+    const premioId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380aa2';
+    const operadorId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380aa3';
+
+    await crearCliente(clienteId, 'Rita');
+    await crearPremio(premioId, 10);
+
+    await pool.query('SELECT guardar_canje($1)', [
+      JSON.stringify({
+        cliente_id: clienteId,
+        tipo: 'redeem',
+        monto_puntos: -10,
+        premio_id: premioId,
+        created_by: operadorId,
+      }),
+    ]);
+
+    const redeem = await pool.query('SELECT id FROM ledger_entries WHERE tipo = $1', ['redeem']);
+    const reversal = {
+      cliente_id: clienteId,
+      tipo: 'reversal',
+      monto_puntos: 10,
+      premio_id: premioId,
+      reverses_entry_id: redeem.rows[0].id,
+      created_by: operadorId,
+    };
+
+    await pool.query('SELECT guardar_reversion_canje($1)', [JSON.stringify(reversal)]);
+
+    await expect(
+      pool.query('SELECT guardar_reversion_canje($1)', [
+        JSON.stringify({ ...reversal, id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380aa4' }),
+      ])
+    ).rejects.toThrow(/ledger_entries_reverses_entry_id_key/);
+  });
+
+  it('un rol sin privilegios no ejecuta las RPC ni inserta un canje salteando RLS', async () => {
+    const clienteId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380ab1';
+    const operadorId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380ab2';
+    const visitaId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380ab3';
+
+    const definers = [
+      {
+        sql: 'SELECT guardar_visita_y_entradas($1, $2, $3, $4, $5)',
+        params: [visitaId, clienteId, null, operadorId, JSON.stringify([])],
+      },
+      {
+        sql: 'SELECT guardar_canje($1)',
+        params: [
+          JSON.stringify({
+            cliente_id: clienteId,
+            tipo: 'redeem',
+            monto_puntos: -10,
+            created_by: operadorId,
+          }),
+        ],
+      },
+      {
+        sql: 'SELECT guardar_reversion_visita($1, $2, $3)',
+        params: [visitaId, operadorId, JSON.stringify([])],
+      },
+      {
+        sql: 'SELECT guardar_reversion_canje($1)',
+        params: [JSON.stringify({ tipo: 'reversal', monto_puntos: 10 })],
+      },
+      {
+        sql: 'SELECT obtener_ultima_accion($1)',
+        params: [operadorId],
+      },
+    ];
+
+    const client = await pool.connect();
+    try {
+      for (const call of definers) {
+        await client.query('BEGIN');
+        try {
+          await client.query('SET LOCAL ROLE estetica_intruso');
+          await expect(client.query(call.sql, call.params)).rejects.toThrow(
+            /permission denied|permiso denegado/i
+          );
+        } finally {
+          await client.query('ROLLBACK');
+        }
+      }
+
+      await client.query('BEGIN');
+      try {
+        await client.query(
+          'INSERT INTO clientes (id, nombre, telefono) VALUES ($1, $2, $3)',
+          [clienteId, 'Intrusa', '000']
+        );
+        // Con INSERT concedido, el rechazo tiene que venir de RLS y no de un GRANT faltante.
+        await client.query('GRANT INSERT ON ledger_entries TO estetica_intruso');
+        await client.query('SET LOCAL ROLE estetica_intruso');
+        await expect(
+          client.query(
+            `INSERT INTO ledger_entries (cliente_id, tipo, monto_puntos, created_by)
+             VALUES ($1, 'redeem', -10, $2)`,
+            [clienteId, operadorId]
+          )
+        ).rejects.toThrow(/row-level security|seguridad a nivel de fila/i);
+      } finally {
+        await client.query('ROLLBACK');
+      }
+    } finally {
+      client.release();
+    }
+
+    const privilegios = await pool.query<{
+      proname: string;
+      prosecdef: boolean;
+      proconfig: string[] | null;
+      public_execute: boolean;
+      authenticated_execute: boolean;
+    }>(`
+      SELECT p.proname,
+             p.prosecdef,
+             p.proconfig,
+             EXISTS (
+               SELECT 1
+               FROM aclexplode(p.proacl) a
+               WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+             ) AS public_execute,
+             has_function_privilege(
+               'authenticated',
+               p.oid,
+               'EXECUTE'
+             ) AS authenticated_execute
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND p.proname IN (
+          'guardar_visita_y_entradas',
+          'guardar_canje',
+          'guardar_reversion_visita',
+          'guardar_reversion_canje',
+          'obtener_ultima_accion'
+        )
+    `);
+
+    expect(privilegios.rows).toHaveLength(5);
+    for (const row of privilegios.rows) {
+      expect(row.prosecdef).toBe(true);
+      expect(row.proconfig?.join(' ') ?? '').toMatch(/search_path/);
+      expect(row.public_execute).toBe(false);
+      expect(row.authenticated_execute).toBe(true);
+    }
+
+    const firmas = [
+      'public.guardar_visita_y_entradas(uuid, uuid, text, uuid, jsonb)',
+      'public.guardar_canje(jsonb)',
+      'public.guardar_reversion_visita(uuid, uuid, jsonb)',
+      'public.guardar_reversion_canje(jsonb)',
+      'public.obtener_ultima_accion(uuid)',
+    ];
+    for (const firma of firmas) {
+      const priv = await pool.query(
+        `SELECT has_function_privilege('estetica_intruso', $1::regprocedure, 'EXECUTE') AS ok`,
+        [firma]
+      );
+      expect(priv.rows[0].ok).toBe(false);
+    }
+
+    const anon = await pool.query(
+      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') AS existe`
+    );
+    if (anon.rows[0].existe) {
+      for (const firma of firmas) {
+        const priv = await pool.query(
+          `SELECT has_function_privilege('anon', $1::regprocedure, 'EXECUTE') AS ok`,
+          [firma]
+        );
+        expect(priv.rows[0].ok).toBe(false);
+      }
+    }
+
+    const queda = await pool.query('SELECT count(*)::int AS n FROM ledger_entries');
+    expect(queda.rows[0].n).toBe(0);
+
+    const auth = await pool.connect();
+    try {
+      await auth.query('BEGIN');
+      await auth.query(
+        'INSERT INTO clientes (id, nombre, telefono) VALUES ($1, $2, $3)',
+        [clienteId, 'Dueña', '111']
+      );
+      await auth.query('SET LOCAL ROLE authenticated');
+      await auth.query('SELECT guardar_canje($1)', [
+        JSON.stringify({
+          cliente_id: clienteId,
+          tipo: 'redeem',
+          monto_puntos: -10,
+          created_by: operadorId,
+        }),
+      ]);
+      await auth.query('RESET ROLE');
+      const insertado = await auth.query(
+        'SELECT count(*)::int AS n FROM ledger_entries WHERE cliente_id = $1',
+        [clienteId]
+      );
+      expect(insertado.rows[0].n).toBe(1);
+    } finally {
+      await auth.query('ROLLBACK');
+      auth.release();
+    }
+  });
+
+  it('buscar_clientas ignora acentos y también matchea teléfono y DNI, usando el GIN', async () => {
+    await pool.query(
+      `INSERT INTO clientes (id, nombre, telefono, dni) VALUES
+        ($1, 'María Pérez', '11-5555-0101', '30111222'),
+        ($2, 'José Álvarez', '11-5555-0202', '28999888')`,
+      [
+        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380ac1',
+        'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380ac2',
+      ]
+    );
+
+    const porNombre = await pool.query(`SELECT nombre FROM buscar_clientas('maria', 10)`);
+    expect(porNombre.rows.map((r) => r.nombre)).toEqual(['María Pérez']);
+
+    const porApellido = await pool.query(`SELECT nombre FROM buscar_clientas('perez', 10)`);
+    expect(porApellido.rows.map((r) => r.nombre)).toEqual(['María Pérez']);
+
+    const porTelefono = await pool.query(`SELECT nombre FROM buscar_clientas('5555-0202', 10)`);
+    expect(porTelefono.rows.map((r) => r.nombre)).toEqual(['José Álvarez']);
+
+    const porDni = await pool.query(`SELECT nombre FROM buscar_clientas('30111222', 10)`);
+    expect(porDni.rows.map((r) => r.nombre)).toEqual(['María Pérez']);
+
+    const inyeccion = await pool.query(
+      `SELECT nombre FROM buscar_clientas($1, 10)`,
+      [`%',telefono.ilike.%`]
+    );
+    expect(inyeccion.rows).toHaveLength(0);
+
+    const def = await pool.query(
+      `SELECT pg_get_functiondef('public.buscar_clientas(text, integer)'::regprocedure) AS src,
+              proconfig
+       FROM pg_proc
+       WHERE proname = 'buscar_clientas'`
+    );
+    expect(def.rows[0].src).toContain('lower(f_unaccent(c.nombre)) LIKE v_pattern');
+    expect(def.rows[0].src).toContain('UNION');
+    expect((def.rows[0].proconfig as string[]).join(' ')).toMatch(/force_custom_plan/);
+
+    await pool.query('ANALYZE clientes');
+
+    const client = await pool.connect();
+    try {
+      await client.query('SET enable_seqscan = off');
+      await client.query(`
+        PREPARE buscar_idx_test (text) AS
+          SELECT e.*
+          FROM (
+            SELECT c.*
+            FROM clientes c
+            WHERE lower(f_unaccent(c.nombre)) LIKE $1
+            UNION
+            SELECT c.*
+            FROM clientes c
+            WHERE c.telefono ILIKE $1
+            UNION
+            SELECT c.*
+            FROM clientes c
+            WHERE c.dni ILIKE $1
+          ) e
+          ORDER BY e.nombre
+          LIMIT 10
+      `);
+      const plan = await client.query(`EXPLAIN EXECUTE buscar_idx_test('%maria%')`);
+      const texto = plan.rows.map((r) => r['QUERY PLAN']).join('\n');
+      expect(texto).toContain('idx_clientes_nombre_trgm');
+    } finally {
+      await client.query('DEALLOCATE PREPARE buscar_idx_test').catch(() => undefined);
+      await client.query('RESET enable_seqscan');
+      client.release();
+    }
   });
 });
