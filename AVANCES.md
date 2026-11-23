@@ -1,5 +1,59 @@
 # Avances
 
+## 2026-11-23 — Build de Vercel sin prerender de `/`
+
+**Hecho (verificado: `npm run typecheck`, `npm run lint`, `npm test` 41/41 contra Postgres local, `next build` OK sin `NEXT_PUBLIC_SUPABASE_*` en el entorno)**
+- `app/page.tsx`: `export const dynamic = 'force-dynamic'`. Antes el build fallaba prerenderizando `/` con "Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY".
+- `next.config.js`: fuera `experimental.serverActions` (en Next 14 viene activado; daba warning de opción inválida).
+
+**Qué sigue**
+- Cargar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` en Vercel (Production, Preview, Development) cuando exista el proyecto Supabase de la dueña.
+
+**Bloqueos / espera**
+- Proyecto Supabase de la dueña.
+
+## 2026-11-23 — UI mobile-first de mostrador
+
+**Hecho (verificado: `npm run typecheck`, `npm run lint`, `next build` OK; `npm test` 41/41 contra Postgres local con 001–008; recorrido completo en Chromium como iPhone 13 contra un Supabase simulado sobre Postgres local: buscar → alta → visita → canje → deshacer canje → deshacer visita, saldos correctos)**
+- Base: `main` no traía el login (el merge de PR #3 solo agregó `server-actions-mostrador.patch` en la raíz). Se aplicó `login-operadora.patch` sobre esta rama.
+- `/` : buscador por nombre, teléfono o DNI (espera 300 ms, descarta respuestas viejas) y alta rápida (nombre + teléfono, DNI opcional; lo tipeado precarga el campo). Al guardar abre la ficha.
+- `/clientas/[id]`: nombre, teléfono, DNI y saldo grande (SUM en SQL). Registrar visita (tocar ≥ 1 servicio, ve suma y saldo resultante, confirma) y canjear premio (los que no alcanzan se ven con "Le faltan N puntos" y no se pueden elegir; confirmación con tiene/cuesta/le quedan; error del servidor se muestra tal cual).
+- Deshacer en el encabezado de todas las pantallas: vista previa con nombre de la clienta, hora y efecto en puntos → "Sí, deshacer" → qué se deshizo y saldo nuevo.
+- Sin campo `nota` en ninguna pantalla. CSS plano en `app/globals.css` (botones ≥ 56 px, letra 18–20 px). Componentes en `app/_mostrador/`.
+- `npm run lint` no estaba configurado (pedía setup interactivo): se agregó `.eslintrc.json` (`next/core-web-vitals`) con `eslint@8` y `eslint-config-next@14` como devDependencies.
+
+**Decisiones**
+- Ficha como ruta propia (coincide con el `revalidatePath('/clientas/:id')` de las actions y el botón Atrás del celular vuelve al buscador).
+- Visita y canje dentro de la ficha, sin pantallas extra.
+
+**Qué sigue**
+- Prueba real con Supabase de la dueña: aplicar 001–008, crear la usuaria en Auth, cargar env, cargar servicios y premios (el CRUD de catálogo sigue stub).
+- Probar en el celular real de la operadora (tamaño de letra del sistema, teclado numérico).
+
+**Bloqueos / espera**
+- Ninguno técnico. Sigue abierta la decisión de `nota` (Ley 25.326).
+
+## 2026-11-23 — Login de la operadora y sesión por request
+
+**Hecho (verificado: `npm run typecheck`, `npm test` 39/39 contra Postgres local con 001–008, `next build` OK; smoke con `next start`: `/` sin sesión → 307 a `/login`)**
+- `@supabase/ssr` instalado. `src/lib/supabase/server.ts`: cliente por request con `cookies()` de `next/headers`; sin cliente a nivel de módulo. Se borró `client.ts` (cliente compartido).
+- `app/actions/contexto.ts`: valida la sesión con `getUser()` por request; sin usuario → `SesionRequerida`. Ninguna otra action cambió.
+- `middleware.ts` + `src/lib/supabase/middleware.ts`: refresca el token en cada request (los Server Components no pueden escribir cookies) y manda a `/login` a quien no tenga sesión.
+- `/login` (email + contraseña, Server Action), `cerrarSesionAction`, `app/layout.tsx` y `app/page.tsx` (mostrador: placeholder protegido con botón Salir).
+- Tests: `contexto.test.ts` (resuelve/rechaza, cliente nuevo por llamada), `server.test.ts` (cookies, Server Component de solo lectura, env faltante), `login/actions.test.ts` (redirige; no loguea ni devuelve email/contraseña).
+
+**Decisiones**
+- Login por Server Action, sin cliente Supabase en el navegador.
+- Middleware incluido: sin él, la rotación del refresh token en Server Components termina cerrando la sesión.
+
+**Qué sigue**
+- Crear la usuaria de la operadora en Supabase Auth (signup deshabilitado) y cargar `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- Probar login real contra Supabase (no verificado: no hay proyecto Supabase en este entorno).
+- UI mobile-first de mostrador sobre `app/page.tsx`.
+
+**Bloqueos / espera**
+- Sigue abierta la decisión de `nota` (Ley 25.326), ver entrada anterior.
+
 ## 2026-11-23 — Server Actions de mostrador
 
 **Hecho (verificado: `npm run typecheck` y `npm test` en verde, 28/28, contra Postgres 16 local con 001–008)**

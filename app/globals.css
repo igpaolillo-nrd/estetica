@@ -1,0 +1,309 @@
+/*
+ * Mostrador: celular en la mano, clienta enfrente.
+ * Letra grande, botones de al menos 56px de alto, alto contraste, sin adornos.
+ */
+
+:root {
+  --texto: #1a1a1a;
+  --suave: #555;
+  --fondo: #f6f5f3;
+  --tarjeta: #fff;
+  --borde: #c9c6c1;
+  --primario: #1f5f8b;
+  --primario-texto: #fff;
+  --ok: #1d6b38;
+  --ok-fondo: #e3f3e8;
+  --error: #a3001b;
+  --error-fondo: #fde8eb;
+  --aviso-fondo: #fff4d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 16px 48px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+h1 {
+  font-size: 26px;
+}
+
+h2 {
+  font-size: 22px;
+}
+
+a {
+  color: var(--primario);
+}
+
+.encabezado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.encabezado .titulo {
+  flex: 1;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--texto);
+  text-decoration: none;
+}
+
+.pila {
+  display: grid;
+  gap: 12px;
+}
+
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.campo {
+  display: grid;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.campo input {
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  font-size: 20px;
+  border: 2px solid var(--borde);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--texto);
+}
+
+.campo input:focus {
+  outline: none;
+  border-color: var(--primario);
+}
+
+.campo .ayuda {
+  font-weight: 400;
+  color: var(--suave);
+  font-size: 16px;
+}
+
+.boton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  border-radius: 12px;
+  border: 2px solid var(--primario);
+  background: var(--primario);
+  color: var(--primario-texto);
+  cursor: pointer;
+}
+
+.boton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.boton.secundario {
+  background: #fff;
+  color: var(--primario);
+}
+
+.boton.chico {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 17px;
+}
+
+.boton.peligro {
+  background: var(--error);
+  border-color: var(--error);
+}
+
+/* Fila de resultado / opción elegible: toda la fila es el botón. */
+.opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 16px;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  color: var(--texto);
+  background: #fff;
+  border: 2px solid var(--borde);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.opcion[aria-pressed='true'] {
+  border-color: var(--primario);
+  background: #e6f0f7;
+}
+
+.opcion:disabled {
+  cursor: default;
+  background: #f0efed;
+  color: var(--suave);
+}
+
+.opcion .nombre {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.opcion .detalle {
+  font-size: 16px;
+  color: var(--suave);
+}
+
+.opcion .puntos {
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.marca {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--borde);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.opcion[aria-pressed='true'] .marca {
+  background: var(--primario);
+  border-color: var(--primario);
+}
+
+.saldo {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.saldo .numero {
+  display: block;
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.saldo .etiqueta {
+  font-size: 18px;
+  color: var(--suave);
+}
+
+.cuenta {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  font-size: 20px;
+}
+
+.cuenta .total {
+  font-weight: 800;
+}
+
+.mensaje {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 19px;
+}
+
+.mensaje.ok {
+  background: var(--ok-fondo);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.mensaje.error {
+  background: var(--error-fondo);
+  color: var(--error);
+  font-weight: 600;
+}
+
+.mensaje.aviso {
+  background: var(--aviso-fondo);
+}
+
+.fila {
+  display: flex;
+  gap: 8px;
+}
+
+.fila > * {
+  flex: 1;
+}
+
+.suave {
+  color: var(--suave);
+}
+
+/* Hoja de confirmación (deshacer): ocupa el ancho del celular, abajo. */
+.fondo-hoja {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.hoja {
+  width: 100%;
+  max-width: 480px;
+  background: var(--tarjeta);
+  border-radius: 18px 18px 0 0;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 14px;
+}
+
+.hoja p {
+  margin: 0;
+  font-size: 20px;
+}
